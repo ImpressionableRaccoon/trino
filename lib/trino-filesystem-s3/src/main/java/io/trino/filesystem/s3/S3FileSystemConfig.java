@@ -511,4 +511,18 @@ public class S3FileSystemConfig
         this.supportsExclusiveCreate = supportsExclusiveCreate;
         return this;
     }
+
+    private String customInterceptorClasses;
+
+    @Config("s3.custom-interceptor-classes")
+    public S3FileSystemConfig setCustomInterceptorClasses(String customInterceptorClasses)
+    {
+        this.customInterceptorClasses = customInterceptorClasses;
+        return this;
+    }
+
+    public String getCustomInterceptorClasses()
+    {
+        return customInterceptorClasses;
+    }
 }
