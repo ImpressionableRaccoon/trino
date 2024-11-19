@@ -25,6 +25,7 @@ import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider;
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
+import software.amazon.awssdk.core.interceptor.ExecutionInterceptor;
 import software.amazon.awssdk.http.SdkHttpClient;
 import software.amazon.awssdk.http.apache.ApacheHttpClient;
 import software.amazon.awssdk.http.apache.ProxyConfiguration;
@@ -39,6 +40,9 @@ import software.amazon.awssdk.services.sts.StsClientBuilder;
 import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
 
 import java.net.URI;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -263,7 +267,7 @@ final class S3FileSystemLoader
 
     private static ClientOverrideConfiguration createOverrideConfiguration(OpenTelemetry openTelemetry, S3FileSystemConfig config, MetricPublisher metricPublisher)
     {
-        return ClientOverrideConfiguration.builder()
+        ClientOverrideConfiguration.Builder builder = ClientOverrideConfiguration.builder()
                 .addExecutionInterceptor(AwsSdkTelemetry.builder(openTelemetry)
                         .setCaptureExperimentalSpanAttributes(true)
                         .setRecordIndividualHttpError(true)
@@ -271,8 +275,37 @@ final class S3FileSystemLoader
                 .retryStrategy(getRetryStrategy(config.getRetryMode()).toBuilder()
                         .maxAttempts(config.getMaxErrorRetries())
                         .build())
-                .addMetricPublisher(metricPublisher)
-                .build();
+                .addMetricPublisher(metricPublisher);
+
+        String customInterceptors = config.getCustomInterceptorClasses();
+        loadCustomInterceptors(customInterceptors).forEach(builder::addExecutionInterceptor);
+
+        return builder.build();
+    }
+
+    private static List<ExecutionInterceptor> loadCustomInterceptors(String classNames)
+    {
+        if (classNames == null || classNames.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        String[] classNameArray = classNames.split(",");
+        List<ExecutionInterceptor> interceptors = new ArrayList<>();
+
+        for (String className : classNameArray) {
+            try {
+                Class<?> clazz = Class.forName(className.trim());
+                if (!ExecutionInterceptor.class.isAssignableFrom(clazz)) {
+                    throw new IllegalArgumentException("Class " + className + " is not an ExecutionInterceptor");
+                }
+                interceptors.add((ExecutionInterceptor) clazz.getDeclaredConstructor().newInstance());
+            }
+            catch (Exception e) {
+                throw new RuntimeException("Failed to load ExecutionInterceptor: " + className, e);
+            }
+        }
+
+        return interceptors;
     }
 
     private static SdkHttpClient createHttpClient(S3FileSystemConfig config)
